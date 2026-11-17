@@ -1,0 +1,171 @@
+import datetime as dt
+from typing import Any
+
+from .config import FIELDS, START_DATE
+
+
+def aliases(record: dict[str, Any]) -> set[str]:
+    return {value for value in [record.get("id", ""), *(record.get("aliases", []) or [])] if value}
+
+
+def nvd_details(cve: dict[str, Any]) -> dict[str, Any]:
+    weaknesses = [
+        (description.get("value", ""), weakness.get("source", ""))
+        for weakness in cve.get("weaknesses", [])
+        for description in weakness.get("description", [])
+        if str(description.get("value", "")).startswith("CWE-")
+    ]
+    cvss = {"cvss31_nvd": "", "cvss31_cna": "", "cvss40": ""}
+    for metric_key, field in (("cvssMetricV31", "cvss31"), ("cvssMetricV40", "cvss40")):
+        for metric in cve.get("metrics", {}).get(metric_key, []):
+            data = metric.get("cvssData", {})
+            value = f"{data.get('baseScore', '')} {data.get('vectorString', '')}".strip()
+            if field == "cvss40":
+                cvss[field] = value
+            elif metric.get("type") == "Primary" or "nvd.nist.gov" in str(metric.get("source", "")):
+                cvss["cvss31_nvd"] = value
+            else:
+                cvss["cvss31_cna"] = value
+    return {
+        "published": cve.get("published", "")[:10],
+        "weaknesses": weaknesses,
+        **cvss,
+    }
+
+
+def cve_from_advisory(item: dict[str, Any]) -> str:
+    value = item.get("cve_id") or ""
+    return value if value.startswith("CVE-") else ""
+
+
+def _unique(values: list[str]) -> str:
+    return ";".join(dict.fromkeys(value for value in values if value))
+
+
+def _reference_url(reference: Any) -> str:
+    if isinstance(reference, str):
+        return reference
+    if isinstance(reference, dict):
+        return reference.get("url", "")
+    return ""
+
+
+def build_rows(
+    nvd: list[dict[str, Any]],
+    osv: list[dict[str, Any]],
+    github: list[dict[str, Any]],
+    epss: dict[str, dict[str, str]],
+    kev: dict[str, dict[str, Any]],
+    end: dt.date,
+) -> list[dict[str, str]]:
+    groups: dict[str, dict[str, Any]] = {}
+    alias_to_key: dict[str, str] = {}
+    for cve in nvd:
+        cve_id = cve.get("id", "")
+        if cve_id:
+            groups.setdefault(cve_id, {"cve": cve, "osv": [], "github": []})
+            alias_to_key[cve_id] = cve_id
+    for item in osv:
+        cve_id = next((value for value in sorted(aliases(item)) if value.startswith("CVE-")), "")
+        key = cve_id or item.get("id", "")
+        if key:
+            groups.setdefault(key, {"cve": None, "osv": [], "github": []})["osv"].append(item)
+            for value in aliases(item):
+                alias_to_key[value] = key
+    for item in github:
+        cve_id = cve_from_advisory(item)
+        ghsa_id = item.get("ghsa_id", "")
+        key = alias_to_key.get(cve_id, cve_id) if cve_id else alias_to_key.get(ghsa_id, ghsa_id)
+        if key:
+            groups.setdefault(key, {"cve": None, "osv": [], "github": []})["github"].append(item)
+            alias_to_key[ghsa_id] = key
+            if cve_id:
+                alias_to_key[cve_id] = key
+
+    rows: list[dict[str, str]] = []
+    snapshot = dt.date.today().isoformat()
+    for key, group in sorted(groups.items()):
+        cve = group["cve"]
+        osv_items, ghsa_items = group["osv"], group["github"]
+        detail = nvd_details(cve) if cve else {}
+        cve_id = key if key.startswith("CVE-") else ""
+        ghsa_id = _unique([item.get("ghsa_id", "") for item in ghsa_items])
+        osv_id = _unique([item.get("id", "") for item in osv_items])
+        date_published = detail.get("published", "")
+        if not date_published:
+            dates = [item.get("published", "")[:10] for item in osv_items + ghsa_items if item.get("published")]
+            date_published = min(dates) if dates else ""
+        in_period = bool(date_published and START_DATE.isoformat() <= date_published <= end.isoformat())
+        if not in_period:
+            continue
+
+        affected, fixed, commits, reporters = [], [], [], []
+        for item in osv_items:
+            for affected_package in item.get("affected", []):
+                package = affected_package.get("package") or {}
+                if str(package.get("name", "")).lower() not in ("torch", "pytorch"):
+                    continue
+                for version_range in affected_package.get("ranges", []):
+                    for event in version_range.get("events", []):
+                        if event.get("fixed"):
+                            fixed.append(event["fixed"])
+                        for marker in ("introduced", "last_affected"):
+                            if event.get(marker):
+                                affected.append(f"{marker} {event[marker]}")
+            commits.extend(
+                url
+                for reference in item.get("references", [])
+                if "github.com/pytorch/pytorch/commit/" in (url := _reference_url(reference))
+            )
+        for item in ghsa_items:
+            for vulnerability in item.get("vulnerabilities", []):
+                package = vulnerability.get("package") or {}
+                if str(package.get("name", "")).lower() in ("torch", "pytorch"):
+                    affected.append(vulnerability.get("vulnerable_version_range", ""))
+                    patched = vulnerability.get("first_patched_version")
+                    if isinstance(patched, str):
+                        fixed.append(patched)
+                    elif isinstance(patched, dict) and patched.get("identifier"):
+                        fixed.append(patched["identifier"])
+            for credit in item.get("credits", []):
+                user = credit.get("user") or {}
+                reporters.append(user.get("login") or user.get("name") or credit.get("name", ""))
+            commits.extend(
+                url
+                for reference in item.get("references", [])
+                if "github.com/pytorch/pytorch/commit/" in (url := _reference_url(reference))
+            )
+
+        kev_item = kev.get(cve_id, {})
+        weaknesses = detail.get("weaknesses", [])
+        row = {field: "" for field in FIELDS}
+        row.update(
+            {
+                "cve_id": cve_id,
+                "ghsa_id": ghsa_id,
+                "osv_id": osv_id,
+                "published_cve": detail.get("published", "") if cve else "",
+                "published_other": "" if cve else date_published,
+                "cwe": _unique([value for value, _ in weaknesses]),
+                "cwe_source": _unique([source for _, source in weaknesses]),
+                "cvss31_nvd": detail.get("cvss31_nvd", ""),
+                "cvss31_cna": detail.get("cvss31_cna", ""),
+                "cvss40": detail.get("cvss40", ""),
+                "epss": epss.get(cve_id, {}).get("epss", ""),
+                "epss_percentile": epss.get(cve_id, {}).get("percentile", ""),
+                "epss_date": epss.get(cve_id, {}).get("date", ""),
+                "in_kev": "yes" if kev_item else ("no" if cve_id else ""),
+                "kev_date_added": kev_item.get("dateAdded", ""),
+                "affected": _unique(affected),
+                "fixed_version": _unique(fixed),
+                "fix_commit": _unique(commits),
+                "reporter": _unique(reporters),
+                "channel": "GitHub Advisory" if ghsa_items else ("OSV" if osv_items else "NVD"),
+                "snapshot_date": snapshot,
+                "source_ids": _unique([cve_id, ghsa_id, osv_id]),
+                "review_status": "manual_review_required",
+                "review_notes": "Verify PyTorch scope, versions, aliases, and primary-source references; NVD keyword match alone is insufficient.",
+            }
+        )
+        rows.append(row)
+    return rows
