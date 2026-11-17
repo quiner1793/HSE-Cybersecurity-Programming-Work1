@@ -2,8 +2,6 @@ import argparse
 import datetime as dt
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 ROOT = Path(__file__).resolve().parents[2]
 RAW_DIR = ROOT / "data" / "raw"
 OUTPUT_CSV = ROOT / "data" / "vulnerabilities.csv"
@@ -37,6 +35,9 @@ FIELDS = [
     "channel",
     "snapshot_date",
     "source_ids",
+    "description",
+    "nvd_cpe",
+    "source_urls",
     "review_status",
     "review_notes",
 ]
@@ -53,5 +54,7 @@ def parse_args() -> dt.date:
     args = parser.parse_args()
     if args.end < START_DATE:
         parser.error("--end must not precede 2020-01-01")
+    from dotenv import load_dotenv
+
     load_dotenv(ROOT / ".env")
     return args.end
