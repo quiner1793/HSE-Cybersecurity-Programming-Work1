@@ -1,0 +1,9 @@
+.idea
+
+# env
+.env
+.env.*
+!.env.example
+
+# docs lock file
+.~lock*
