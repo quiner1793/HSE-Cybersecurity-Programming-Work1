@@ -1,4 +1,5 @@
 .idea
+*.bkp
 
 # env
 .env
@@ -8,5 +9,5 @@
 __pycache__/
 *.py[cod]
 
-# docs lock file
+# docx lock file
 .~lock*
