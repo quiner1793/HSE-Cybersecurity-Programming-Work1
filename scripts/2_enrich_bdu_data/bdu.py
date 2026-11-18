@@ -130,7 +130,7 @@ def enrich_csv_with_bdu(
         reader = csv.DictReader(source)
         fieldnames = reader.fieldnames
         if not fieldnames:
-            raise ValueError(f"CSV has no header: {csv_path}")
+            raise ValueError(f"CSV has no header: {source_csv}")
         required_csv_columns = {
             "cve_id",
             "review_status",
