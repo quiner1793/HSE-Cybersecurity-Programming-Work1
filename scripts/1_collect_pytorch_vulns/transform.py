@@ -243,8 +243,8 @@ def build_rows(
                 "description": _merge_descriptions(descriptions),
                 "nvd_cpe": _unique(cpes),
                 "source_urls": _unique(source_urls),
-                "review_status": "manual_review_required",
-                "review_notes": "Verify PyTorch scope, versions, aliases, and primary-source references; NVD keyword match alone is insufficient.",
+                "review_status": "",
+                "review_notes": "",
             }
         )
         rows.append(row)

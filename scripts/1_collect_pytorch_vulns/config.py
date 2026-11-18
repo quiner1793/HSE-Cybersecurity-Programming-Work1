@@ -4,6 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 RAW_DIR = ROOT / "data" / "raw"
+BDU_XLSX = RAW_DIR / "bdu_vullist.xlsx"
 OUTPUT_CSV = ROOT / "data" / "vulnerabilities.csv"
 START_DATE = dt.date(2020, 1, 1)
 
