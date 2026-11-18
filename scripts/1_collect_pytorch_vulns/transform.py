@@ -1,7 +1,7 @@
 import datetime as dt
 from typing import Any
 
-from .config import FIELDS, START_DATE
+from config import FIELDS, START_DATE
 
 
 def aliases(record: dict[str, Any]) -> set[str]:

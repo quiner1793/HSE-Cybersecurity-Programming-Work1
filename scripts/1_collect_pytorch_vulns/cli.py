@@ -1,9 +1,9 @@
 import csv
 
-from .config import FIELDS, OUTPUT_CSV, parse_args
-from .http import ApiClient
-from .sources import collect_epss, collect_github, collect_kev, collect_nvd, collect_osv
-from .transform import build_rows
+from api_client import ApiClient
+from config import FIELDS, OUTPUT_CSV, parse_args
+from sources import collect_epss, collect_github, collect_kev, collect_nvd, collect_osv
+from transform import build_rows
 
 
 def main() -> None:

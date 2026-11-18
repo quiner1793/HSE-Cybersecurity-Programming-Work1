@@ -4,8 +4,8 @@ import os
 import time
 from typing import Any
 
-from .config import RAW_DIR, START_DATE
-from .http import ApiClient
+from api_client import ApiClient
+from config import RAW_DIR, START_DATE
 
 NVD_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 OSV_URL = "https://api.osv.dev/v1/query"
