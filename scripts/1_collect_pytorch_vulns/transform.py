@@ -153,7 +153,7 @@ def build_rows(
         if not in_period:
             continue
 
-        affected, fixed, commits, reporters, descriptions, source_urls, cwes = [], [], [], [], [], [], []
+        affected, fixed, descriptions, source_urls, cwes = [], [], [], [], []
         cpes = detail.get("cpes", [])
         if detail.get("description"):
             descriptions.append(detail["description"])
@@ -177,11 +177,6 @@ def build_rows(
                         for marker in ("introduced", "last_affected"):
                             if event.get(marker):
                                 affected.append(f"{marker} {event[marker]}")
-            commits.extend(
-                url
-                for reference in item.get("references", [])
-                if "github.com/pytorch/pytorch/commit/" in (url := _reference_url(reference))
-            )
         for item in ghsa_items:
             if item.get("description"):
                 descriptions.append(item["description"])
@@ -200,14 +195,6 @@ def build_rows(
                         fixed.append(patched)
                     elif isinstance(patched, dict) and patched.get("identifier"):
                         fixed.append(patched["identifier"])
-            for credit in item.get("credits", []):
-                user = credit.get("user") or {}
-                reporters.append(user.get("login") or user.get("name") or credit.get("name", ""))
-            commits.extend(
-                url
-                for reference in item.get("references", [])
-                if "github.com/pytorch/pytorch/commit/" in (url := _reference_url(reference))
-            )
 
         kev_item = kev.get(cve_id, {})
         weaknesses = detail.get("weaknesses", [])
@@ -231,9 +218,6 @@ def build_rows(
                 "kev_date_added": kev_item.get("dateAdded", ""),
                 "affected": _unique(affected),
                 "fixed_version": _unique(fixed),
-                "fix_commit": _unique(commits),
-                "reporter": _unique(reporters),
-                "channel": "GitHub Advisory" if ghsa_items else ("OSV" if osv_items else "NVD"),
                 "snapshot_date": snapshot,
                 "source_ids": _unique(
                     [cve_id]

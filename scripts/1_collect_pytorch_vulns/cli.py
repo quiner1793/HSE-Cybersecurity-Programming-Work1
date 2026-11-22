@@ -7,40 +7,36 @@ from sources import collect_epss, collect_github, collect_kev, collect_nvd, coll
 from transform import build_rows
 
 
-REVIEW_FIELDS = ("review_status", "review_notes")
+MANUAL_FIELDS = ("review_status", "review_notes", "fix_commit", "fix_date", "reporter", "channel")
 
 
-def load_previous_reviews() -> dict[str, dict[str, str]]:
-    reviews: dict[str, dict[str, str]] = {}
+def load_previous_manual_fields() -> dict[str, dict[str, str]]:
+    previous: dict[str, dict[str, str]] = {}
     if not OUTPUT_CSV.is_file():
-        return reviews
+        return previous
     with OUTPUT_CSV.open(newline="", encoding="utf-8-sig") as source:
         for row in csv.DictReader(source):
             cve_id = (row.get("cve_id") or "").strip().upper()
             if not cve_id:
                 continue
-            saved = reviews.setdefault(cve_id, {})
-            for field in REVIEW_FIELDS:
-                value = (row.get(field) or "").strip()
-                if value:
-                    saved[field] = value
-    return reviews
+            previous[cve_id] = {field: (row.get(field) or "").strip() for field in MANUAL_FIELDS}
+    return previous
 
 
-def restore_previous_reviews(rows: list[dict[str, str]], reviews: dict[str, dict[str, str]]) -> int:
-    """Restore review fields in place and return the number of rows with a saved status."""
+def restore_previous_manual_fields(rows: list[dict[str, str]], previous: dict[str, dict[str, str]]) -> int:
+    """Restore manually maintained fields in place; count rows with a saved review status."""
     restored = 0
     for row in rows:
-        previous = reviews.get(row["cve_id"].strip().upper(), {})
-        for field in REVIEW_FIELDS:
-            row[field] = previous.get(field, "")
+        saved = previous.get(row["cve_id"].strip().upper(), {})
+        for field in MANUAL_FIELDS:
+            row[field] = saved.get(field, "")
         if row["review_status"]:
             restored += 1
     return restored
 
 
 def main() -> None:
-    previous_reviews = load_previous_reviews()
+    previous_manual_fields = load_previous_manual_fields()
     end = parse_args()
     print(f"Collecting PyTorch vulnerability candidates through {end.isoformat()}.", flush=True)
 
@@ -63,7 +59,7 @@ def main() -> None:
         kev = collect_kev(api=api)
         rows = build_rows(nvd=nvd, osv=osv, github=github, epss=epss, kev=kev, end=end)
         bdu_matches = enrich_rows_with_bdu(rows=rows)
-        restored_reviews = restore_previous_reviews(rows=rows, reviews=previous_reviews)
+        restored_reviews = restore_previous_manual_fields(rows=rows, previous=previous_manual_fields)
     finally:
         api.close()
 
@@ -76,6 +72,10 @@ def main() -> None:
     print(f"CSV rows in period: {len(rows)}")
     print(f"BDU matches: {bdu_matches}")
     print(f"Previous review decisions restored: {restored_reviews}")
+    print(
+        "Manual metadata values restored: "
+        f"{sum(bool(row[field]) for row in rows for field in MANUAL_FIELDS[2:])}"
+    )
     print(f"Rows still requiring manual review: {len(rows) - restored_reviews}")
     print(f"Output: {OUTPUT_CSV}")
     print("Review each row with a blank review_status; set it to included or excluded.")
