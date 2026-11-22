@@ -3,11 +3,20 @@ import csv
 from api_client import ApiClient
 from bdu import enrich_rows_with_bdu
 from config import FIELDS, OUTPUT_CSV, parse_args
-from sources import collect_epss, collect_github, collect_kev, collect_nvd, collect_osv
+from sources import collect_cve_records, collect_epss, collect_github, collect_kev, collect_nvd, collect_osv
 from transform import build_rows
 
 
-MANUAL_FIELDS = ("review_status", "review_notes", "fix_commit", "fix_date", "reporter", "channel")
+MANUAL_FIELDS = (
+    "review_status",
+    "review_notes",
+    "affected",
+    "fixed_version",
+    "fix_commit",
+    "fix_date",
+    "reporter",
+    "channel",
+)
 
 
 def load_previous_manual_fields() -> dict[str, dict[str, str]]:
@@ -15,11 +24,18 @@ def load_previous_manual_fields() -> dict[str, dict[str, str]]:
     if not OUTPUT_CSV.is_file():
         return previous
     with OUTPUT_CSV.open(newline="", encoding="utf-8-sig") as source:
-        for row in csv.DictReader(source):
+        reader = csv.DictReader(source)
+        # In the old table these two columns were filled automatically, so their
+        # existing values are evidence, not confirmed manual conclusions.
+        preserve_versions = "published_nvd" in (reader.fieldnames or [])
+        for row in reader:
             cve_id = (row.get("cve_id") or "").strip().upper()
             if not cve_id:
                 continue
             previous[cve_id] = {field: (row.get(field) or "").strip() for field in MANUAL_FIELDS}
+            if not preserve_versions:
+                previous[cve_id]["affected"] = ""
+                previous[cve_id]["fixed_version"] = ""
     return previous
 
 
@@ -55,9 +71,10 @@ def main() -> None:
             }
             | {str(item.get("cve_id") or "") for item in github if str(item.get("cve_id") or "").startswith("CVE-")}
         )
+        cve_records = collect_cve_records(api=api, cve_ids=cves)
         epss = collect_epss(api=api, cves=cves)
         kev = collect_kev(api=api)
-        rows = build_rows(nvd=nvd, osv=osv, github=github, epss=epss, kev=kev, end=end)
+        rows = build_rows(nvd=nvd, osv=osv, github=github, epss=epss, kev=kev, cve_records=cve_records, end=end)
         bdu_matches = enrich_rows_with_bdu(rows=rows)
         restored_reviews = restore_previous_manual_fields(rows=rows, previous=previous_manual_fields)
     finally:
@@ -72,10 +89,7 @@ def main() -> None:
     print(f"CSV rows in period: {len(rows)}")
     print(f"BDU matches: {bdu_matches}")
     print(f"Previous review decisions restored: {restored_reviews}")
-    print(
-        "Manual metadata values restored: "
-        f"{sum(bool(row[field]) for row in rows for field in MANUAL_FIELDS[2:])}"
-    )
+    print("Manual metadata values restored: " f"{sum(bool(row[field]) for row in rows for field in MANUAL_FIELDS[2:])}")
     print(f"Rows still requiring manual review: {len(rows) - restored_reviews}")
     print(f"Output: {OUTPUT_CSV}")
     print("Review each row with a blank review_status; set it to included or excluded.")

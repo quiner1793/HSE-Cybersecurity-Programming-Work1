@@ -15,17 +15,19 @@ def nvd_details(cve: dict[str, Any]) -> dict[str, Any]:
         for description in weakness.get("description", [])
         if str(description.get("value", "")).startswith("CWE-")
     ]
-    cvss = {"cvss31_nvd": "", "cvss31_cna": "", "cvss40": ""}
-    for metric_key, field in (("cvssMetricV31", "cvss31"), ("cvssMetricV40", "cvss40")):
+    cvss = {f"cvss{version}_{source}": "" for version in ("30", "31", "40") for source in ("nvd", "cna")}
+    for metric_key, version in (("cvssMetricV30", "30"), ("cvssMetricV31", "31"), ("cvssMetricV40", "40")):
         for metric in cve.get("metrics", {}).get(metric_key, []):
             data = metric.get("cvssData", {})
             value = f"{data.get('baseScore', '')} {data.get('vectorString', '')}".strip()
-            if field == "cvss40":
-                cvss[field] = cvss[field] or value
-            elif metric.get("source") == "nvd@nist.gov":
-                cvss["cvss31_nvd"] = value
+            source = metric.get("source")
+            if source == "nvd@nist.gov":
+                field = f"cvss{version}_nvd"
+            elif source and source == cve.get("sourceIdentifier"):
+                field = f"cvss{version}_cna"
             else:
-                cvss["cvss31_cna"] = cvss["cvss31_cna"] or value
+                continue
+            cvss[field] = cvss[field] or value
     descriptions = [item.get("value", "") for item in cve.get("descriptions", []) if item.get("lang") == "en"]
     cpes = []
     for configuration in cve.get("configurations", []):
@@ -71,14 +73,6 @@ def _merge_descriptions(values: list[str]) -> str:
     return "\n\n".join(distinct)
 
 
-def _reference_url(reference: Any) -> str:
-    if isinstance(reference, str):
-        return reference
-    if isinstance(reference, dict):
-        return reference.get("url", "")
-    return ""
-
-
 def _cvss_value(data: dict[str, Any]) -> str:
     if not data:
         return ""
@@ -87,9 +81,47 @@ def _cvss_value(data: dict[str, Any]) -> str:
     return f"{score} {vector}".strip()
 
 
-def _advisory_cvss40(item: dict[str, Any]) -> str:
+def advisory_cvss(item: dict[str, Any], version: str) -> str:
     severities = item.get("cvss_severities") or {}
-    return _cvss_value(severities.get("cvss_v4") or {})
+    key = "cvss_v4" if version == "4.0" else "cvss_v3"
+    data = severities.get(key) or {}
+    if not str(data.get("vector_string") or "").startswith(f"CVSS:{version}/"):
+        return ""
+    return _cvss_value(data)
+
+
+def cve_list_assignments(record: dict[str, Any]) -> list[tuple[str, str, str, str]]:
+    assignments = []
+    containers = record.get("containers", {})
+    for role, items in (("CNA", [containers.get("cna")]), ("ADP", containers.get("adp", []))):
+        for container in items:
+            if not container:
+                continue
+            provider = container.get("providerMetadata", {})
+            name = provider.get("shortName") or provider.get("orgId", "")
+            for problem in container.get("problemTypes", []):
+                for description in problem.get("descriptions", []):
+                    cwe = description.get("cweId", "")
+                    if str(cwe).startswith("CWE-"):
+                        assignments.append(("cwe", cwe, role, name))
+            for metric in container.get("metrics", []):
+                for key, field in (("cvssV3_0", "cvss30"), ("cvssV3_1", "cvss31"), ("cvssV4_0", "cvss40")):
+                    value = _cvss_value(metric.get(key, {}))
+                    if value:
+                        assignments.append((field, value, role, name))
+    return assignments
+
+
+def _cwe_source(value: str, source: str, cna: str, adp_names: dict[str, str]) -> str:
+    if source == "nvd@nist.gov":
+        label = "NVD"
+    elif source == cna:
+        label = "CNA"
+    elif source in adp_names:
+        label = f"ADP {adp_names[source]}"
+    else:
+        label = "другой источник"
+    return f"{value} — {label} ({source})"
 
 
 def build_rows(
@@ -98,6 +130,7 @@ def build_rows(
     github: list[dict[str, Any]],
     epss: dict[str, dict[str, str]],
     kev: dict[str, dict[str, Any]],
+    cve_records: dict[str, dict[str, Any]],
     end: dt.date,
 ) -> list[dict[str, str]]:
     groups: dict[str, dict[str, Any]] = {}
@@ -133,100 +166,96 @@ def build_rows(
         cve_id = key if key.startswith("CVE-") else ""
         ghsa_id = _unique([item.get("ghsa_id", "") for item in ghsa_items])
         osv_id = _unique([item.get("id", "") for item in osv_items])
-        published_other = _unique(
-            [
-                f"OSV:{item.get('id', '')}:{item.get('published', '')[:10]}"
-                for item in osv_items
-                if item.get("id") and item.get("published")
-            ]
-            + [
-                f"GHSA:{item.get('ghsa_id', '')}:{item.get('published_at', '')[:10]}"
-                for item in ghsa_items
-                if item.get("ghsa_id") and item.get("published_at")
-            ]
-        )
-        date_published = detail.get("published", "")
+        published_cve = cve_records.get(cve_id, {}).get("cveMetadata", {}).get("datePublished", "")[:10]
+        date_published = published_cve or detail.get("published", "")
         if not date_published:
-            dates = [item.get("published", "")[:10] for item in osv_items + ghsa_items if item.get("published")]
+            dates = [item.get("published", "")[:10] for item in osv_items if item.get("published")]
+            dates.extend(item.get("published_at", "")[:10] for item in ghsa_items if item.get("published_at"))
             date_published = min(dates) if dates else ""
         in_period = bool(date_published and START_DATE.isoformat() <= date_published <= end.isoformat())
         if not in_period:
             continue
 
-        affected, fixed, descriptions, source_urls, cwes = [], [], [], [], []
+        descriptions, cwes = [], []
         cpes = detail.get("cpes", [])
         if detail.get("description"):
             descriptions.append(detail["description"])
-        if cve:
-            source_urls.extend(_reference_url(reference) for reference in cve.get("references", []))
         for item in osv_items:
             if item.get("details"):
                 descriptions.append(item["details"])
-            source_urls.extend(_reference_url(reference) for reference in item.get("references", []))
             cwes.extend(
-                (cwe, item.get("id", "OSV")) for cwe in (item.get("database_specific", {}).get("cwe_ids") or [])
+                (cwe, f"OSV ({item.get('id', '')})") for cwe in (item.get("database_specific", {}).get("cwe_ids") or [])
             )
-            for affected_package in item.get("affected", []):
-                package = affected_package.get("package") or {}
-                if str(package.get("name", "")).lower() not in ("torch", "pytorch"):
-                    continue
-                for version_range in affected_package.get("ranges", []):
-                    for event in version_range.get("events", []):
-                        if event.get("fixed") and version_range.get("type") == "ECOSYSTEM":
-                            fixed.append(event["fixed"])
-                        for marker in ("introduced", "last_affected"):
-                            if event.get(marker):
-                                affected.append(f"{marker} {event[marker]}")
         for item in ghsa_items:
             if item.get("description"):
                 descriptions.append(item["description"])
-            source_urls.extend(
-                [item.get("html_url", ""), *(_reference_url(reference) for reference in item.get("references", []))]
-            )
-            cwes.extend((cwe.get("cwe_id", ""), item.get("ghsa_id", "GHSA")) for cwe in item.get("cwes", []))
-            if not detail.get("cvss40"):
-                detail["cvss40"] = _advisory_cvss40(item)
-            for vulnerability in item.get("vulnerabilities", []):
-                package = vulnerability.get("package") or {}
-                if str(package.get("name", "")).lower() in ("torch", "pytorch"):
-                    affected.append(vulnerability.get("vulnerable_version_range", ""))
-                    patched = vulnerability.get("first_patched_version")
-                    if isinstance(patched, str):
-                        fixed.append(patched)
-                    elif isinstance(patched, dict) and patched.get("identifier"):
-                        fixed.append(patched["identifier"])
+            cwes.extend((cwe.get("cwe_id", ""), f"GHSA ({item.get('ghsa_id', '')})") for cwe in item.get("cwes", []))
 
         kev_item = kev.get(cve_id, {})
         weaknesses = detail.get("weaknesses", [])
+        list_assignments = cve_list_assignments(cve_records.get(cve_id, {}))
+        cwes.extend(
+            (value, f"CVE List/{role} ({name})") for field, value, role, name in list_assignments if field == "cwe"
+        )
+        cna_cvss = {
+            field: next(
+                (value for candidate, value, role, _ in list_assignments if candidate == field and role == "CNA"), ""
+            )
+            for field in ("cvss30", "cvss31", "cvss40")
+        }
+        adp_names = {
+            provider.get("orgId", ""): provider.get("shortName", "ADP")
+            for container in cve_records.get(cve_id, {}).get("containers", {}).get("adp", [])
+            if (provider := container.get("providerMetadata", {})).get("orgId")
+        }
         row = {field: "" for field in FIELDS}
         row.update(
             {
                 "cve_id": cve_id,
                 "ghsa_id": ghsa_id,
                 "osv_id": osv_id,
-                "published_cve": detail.get("published", "") if cve else "",
-                "published_other": published_other or (date_published if not cve else ""),
+                "published_cve": published_cve,
+                "published_nvd": detail.get("published", ""),
+                "published_osv": _unique([item.get("published", "")[:10] for item in osv_items]),
+                "published_ghsa": _unique([item.get("published_at", "")[:10] for item in ghsa_items]),
                 "cwe": _unique([*(value for value, _ in weaknesses), *(value for value, _ in cwes)]),
-                "cwe_source": _unique([*(source for _, source in weaknesses), *(source for _, source in cwes)]),
+                "cwe_source": _unique(
+                    [
+                        *(
+                            _cwe_source(value, source, cve.get("sourceIdentifier", ""), adp_names)
+                            for value, source in weaknesses
+                        )
+                    ]
+                    + [f"{value} — {source}" for value, source in cwes if value]
+                ),
+                "cvss30_nvd": detail.get("cvss30_nvd", ""),
+                "cvss30_cna": cna_cvss["cvss30"] or detail.get("cvss30_cna", ""),
+                "cvss30_adp": _unique(
+                    [f"{name}: {value}" for field, value, role, name in list_assignments if field == "cvss30" and role == "ADP"]
+                ),
+                "cvss30_ghsa": _unique([advisory_cvss(item, "3.0") for item in ghsa_items]),
                 "cvss31_nvd": detail.get("cvss31_nvd", ""),
-                "cvss31_cna": detail.get("cvss31_cna", ""),
-                "cvss40": detail.get("cvss40", ""),
+                "cvss31_cna": cna_cvss["cvss31"] or detail.get("cvss31_cna", ""),
+                "cvss31_adp": _unique(
+                    [f"{name}: {value}" for field, value, role, name in list_assignments if field == "cvss31" and role == "ADP"]
+                ),
+                "cvss31_ghsa": _unique([advisory_cvss(item, "3.1") for item in ghsa_items]),
+                "cvss40_nvd": detail.get("cvss40_nvd", ""),
+                "cvss40_cna": cna_cvss["cvss40"] or detail.get("cvss40_cna", ""),
+                "cvss40_adp": _unique(
+                    [f"{name}: {value}" for field, value, role, name in list_assignments if field == "cvss40" and role == "ADP"]
+                ),
+                "cvss40_ghsa": _unique([advisory_cvss(item, "4.0") for item in ghsa_items]),
                 "epss": epss.get(cve_id, {}).get("epss", ""),
                 "epss_percentile": epss.get(cve_id, {}).get("percentile", ""),
                 "epss_date": epss.get(cve_id, {}).get("date", ""),
                 "in_kev": "yes" if kev_item else ("no" if cve_id else ""),
                 "kev_date_added": kev_item.get("dateAdded", ""),
-                "affected": _unique(affected),
-                "fixed_version": _unique(fixed),
+                "affected": "",
+                "fixed_version": "",
                 "snapshot_date": snapshot,
-                "source_ids": _unique(
-                    [cve_id]
-                    + [item.get("ghsa_id", "") for item in ghsa_items]
-                    + [item.get("id", "") for item in osv_items]
-                ),
                 "description": _merge_descriptions(descriptions),
                 "nvd_cpe": _unique(cpes),
-                "source_urls": _unique(source_urls),
                 "review_status": "",
                 "review_notes": "",
             }

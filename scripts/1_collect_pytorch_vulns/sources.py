@@ -4,6 +4,8 @@ import os
 import time
 from typing import Any
 
+import httpx
+
 from api_client import ApiClient
 from config import RAW_DIR, START_DATE
 
@@ -12,6 +14,7 @@ OSV_URL = "https://api.osv.dev/v1/query"
 GITHUB_URL = "https://api.github.com/advisories"
 EPSS_URL = "https://api.first.org/data/v1/epss"
 KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+CVE_URL = "https://cveawg.mitre.org/api/cve"
 
 
 def save_json(name: str, payload: Any) -> None:
@@ -70,6 +73,30 @@ def collect_osv(api: ApiClient) -> list[dict[str, Any]]:
     records = payload.get("vulns", [])
     save_json("osv_torch_pypi.json", records)
     print(f"[OSV] {len(records)} records saved.", flush=True)
+    return records
+
+
+def collect_cve_records(api: ApiClient, cve_ids: list[str]) -> dict[str, dict[str, Any]]:
+    path = RAW_DIR / "cve_records.json"
+    cached = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    records = {cve_id: cached[cve_id] for cve_id in cve_ids if cve_id in cached}
+    missing = [cve_id for cve_id in cve_ids if cve_id not in records]
+    print(f"[CVE List] {len(records)} cached; {len(missing)} records to fetch.", flush=True)
+    for number, cve_id in enumerate(missing, start=1):
+        try:
+            record = api.get_json(f"{CVE_URL}/{cve_id}")
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code != 404:
+                raise
+            print(f"[CVE List] {cve_id}: no public record (404).", flush=True)
+            continue
+        metadata = record.get("cveMetadata", {})
+        if metadata.get("cveId") != cve_id:
+            raise ValueError(f"Unexpected CVE List record for {cve_id}")
+        records[cve_id] = record
+        if number % 10 == 0 or number == len(missing):
+            save_json("cve_records.json", records)
+            print(f"[CVE List] fetched {number}/{len(missing)}", flush=True)
     return records
 
 
