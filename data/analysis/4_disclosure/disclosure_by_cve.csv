@@ -1,0 +1,33 @@
+﻿cve_id,reporter,channel,fix_date,published_cve
+CVE-2022-45907,Lyutoon (GitHub),GitHub issue,2022-12-15,2022-11-26
+CVE-2024-31580,Не установлен,Авторский отчёт (GitHub Gist),2024-01-30,2024-04-17
+CVE-2024-31583,Не установлен,Авторский отчёт (GitHub Gist),2024-01-30,2024-04-17
+CVE-2024-31584,Не установлен,Не установлен,2024-01-30,2024-04-19
+CVE-2024-48063,HRP; Aftersnow; Gxh,Авторский отчёт (GitHub Gist),,2024-10-29
+CVE-2025-2148,Default436352 (VulDB User),VulDB,,2025-03-10
+CVE-2025-2149,Default436352 (VulDB User),VulDB,,2025-03-10
+CVE-2025-2953,Default436352 (VulDB User),VulDB,2025-06-04,2025-03-30
+CVE-2025-2998,Default436352 (VulDB User),VulDB,2026-01-21,2025-03-31
+CVE-2025-2999,Default436352 (VulDB User),VulDB,2026-01-21,2025-03-31
+CVE-2025-3000,Default436352 (VulDB User),VulDB,2026-09-02,2025-03-31
+CVE-2025-3001,Default436352 (VulDB User),VulDB,2026-03-23,2025-03-31
+CVE-2025-3121,Default436352 (VulDB User),VulDB,,2025-04-02
+CVE-2025-3136,Default436352 (VulDB User),VulDB,,2025-04-03
+CVE-2025-32434,Ji'an Zhou,GHSA (бюллетень PyTorch),2025-01-29,2025-04-18
+CVE-2025-3730,Default436352 (VulDB User),VulDB,2025-08-06,2025-04-16
+CVE-2025-4287,Default436352 (VulDB User),VulDB,,2025-05-05
+CVE-2025-46148,Shaoyu Yang,Авторский отчёт (GitHub Gist),2025-08-06,2025-09-25
+CVE-2025-46149,Shaoyu Yang,Авторский отчёт (GitHub Gist),2025-04-23,2025-09-25
+CVE-2025-46150,Shaoyu Yang,Авторский отчёт (GitHub Gist),2025-04-23,2025-09-25
+CVE-2025-46152,Shaoyu Yang,Авторский отчёт (GitHub Gist),2025-04-23,2025-09-25
+CVE-2025-46153,Shaoyu Yang,Авторский отчёт (GitHub Gist),2025-04-23,2025-09-25
+CVE-2025-55551,Shaoyu Yang,Авторский отчёт (GitHub Gist),2025-10-15,2025-09-25
+CVE-2025-55552,Shaoyu Yang,Авторский отчёт (GitHub Gist),2025-10-15,2025-09-25
+CVE-2025-55553,Shaoyu Yang,Авторский отчёт (GitHub Gist),2025-08-06,2025-09-25
+CVE-2025-55554,Shaoyu Yang,Авторский отчёт (GitHub Gist),,2025-09-25
+CVE-2025-55557,Shaoyu Yang,Авторский отчёт (GitHub Gist),2025-08-06,2025-09-25
+CVE-2025-55558,Shaoyu Yang,Авторский отчёт (GitHub Gist),2025-08-06,2025-09-25
+CVE-2025-55560,Shaoyu Yang,Авторский отчёт (GitHub Gist),2025-08-06,2025-09-25
+CVE-2025-63396,Daisy2ang (GitHub),GitHub issue,,2025-11-12
+CVE-2026-24747,Ji'an Zhou,GHSA (бюллетень PyTorch),2026-01-21,2026-01-27
+CVE-2026-4538,ez-lbz (VulDB User),VulDB,,2026-03-22
