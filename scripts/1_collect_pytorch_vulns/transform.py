@@ -241,9 +241,7 @@ def build_rows(
                 "ghsa_id": ghsa_id,
                 "osv_id": osv_id,
                 "published_cve": published_cve,
-                "published_nvd": detail.get("published", ""),
-                "published_osv": _unique([item.get("published", "")[:10] for item in osv_items]),
-                "published_ghsa": _unique([item.get("published_at", "")[:10] for item in ghsa_items]),
+                "in_nvd": "yes" if cve else "no",
                 "cwe": _unique([*(value for value, _ in weaknesses), *(value for value, _ in cwes)]),
                 "cwe_source": _unique(
                     [

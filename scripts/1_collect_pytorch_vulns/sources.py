@@ -67,6 +67,32 @@ def collect_nvd(api: ApiClient, end: dt.date) -> list[dict[str, Any]]:
     return result
 
 
+def complete_nvd_by_id(api: ApiClient, records: list[dict[str, Any]], cve_ids: list[str]) -> list[dict[str, Any]]:
+    """Check CVEs found in other catalogs that were absent from NVD keyword search."""
+    by_id = {record["id"]: record for record in records}
+    missing = [cve_id for cve_id in cve_ids if cve_id not in by_id]
+    if not missing:
+        return records
+
+    api_key = os.getenv("NVD_API_KEY")
+    headers = {"apiKey": api_key} if api_key else {}
+    for number, cve_id in enumerate(missing, start=1):
+        print(f"[NVD by ID {number}/{len(missing)}] {cve_id}", flush=True)
+        payload = api.get_json(NVD_URL, params={"cveId": cve_id}, headers=headers)
+        entries = [entry["cve"] for entry in payload.get("vulnerabilities", [])]
+        if entries:
+            if len(entries) != 1 or entries[0].get("id") != cve_id:
+                raise ValueError(f"Unexpected NVD response for {cve_id}")
+            by_id[cve_id] = entries[0]
+        if number < len(missing):
+            time.sleep(0.7 if api_key else 6.0)
+
+    result = sorted(by_id.values(), key=lambda cve: (cve.get("published", ""), cve["id"]))
+    save_json("nvd_candidates.json", result)
+    print(f"[NVD] {len(result)} candidates after direct CVE lookup.", flush=True)
+    return result
+
+
 def collect_osv(api: ApiClient) -> list[dict[str, Any]]:
     print("[OSV] Querying torch (PyPI)...", flush=True)
     payload = api.post_json(OSV_URL, {"package": {"name": "torch", "ecosystem": "PyPI"}})

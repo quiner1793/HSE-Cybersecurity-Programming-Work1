@@ -3,7 +3,7 @@ import csv
 from api_client import ApiClient
 from bdu import enrich_rows_with_bdu
 from config import FIELDS, OUTPUT_CSV, parse_args
-from sources import collect_cve_records, collect_epss, collect_github, collect_kev, collect_nvd, collect_osv
+from sources import complete_nvd_by_id, collect_cve_records, collect_epss, collect_github, collect_kev, collect_nvd, collect_osv
 from transform import build_rows
 
 
@@ -25,17 +25,11 @@ def load_previous_manual_fields() -> dict[str, dict[str, str]]:
         return previous
     with OUTPUT_CSV.open(newline="", encoding="utf-8-sig") as source:
         reader = csv.DictReader(source)
-        # In the old table these two columns were filled automatically, so their
-        # existing values are evidence, not confirmed manual conclusions.
-        preserve_versions = "published_nvd" in (reader.fieldnames or [])
         for row in reader:
             cve_id = (row.get("cve_id") or "").strip().upper()
             if not cve_id:
                 continue
             previous[cve_id] = {field: (row.get(field) or "").strip() for field in MANUAL_FIELDS}
-            if not preserve_versions:
-                previous[cve_id]["affected"] = ""
-                previous[cve_id]["fixed_version"] = ""
     return previous
 
 
@@ -71,6 +65,7 @@ def main() -> None:
             }
             | {str(item.get("cve_id") or "") for item in github if str(item.get("cve_id") or "").startswith("CVE-")}
         )
+        nvd = complete_nvd_by_id(api=api, records=nvd, cve_ids=cves)
         cve_records = collect_cve_records(api=api, cve_ids=cves)
         epss = collect_epss(api=api, cves=cves)
         kev = collect_kev(api=api)
