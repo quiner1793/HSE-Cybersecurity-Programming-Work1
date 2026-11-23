@@ -11,3 +11,6 @@ __pycache__/
 
 # docx lock file
 .~lock*
+
+# report
+report/out
