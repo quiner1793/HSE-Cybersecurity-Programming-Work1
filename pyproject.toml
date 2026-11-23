@@ -9,6 +9,7 @@ dependencies = [
     "python-calamine>=0.9.1,<1",
     "matplotlib>=3.10,<4",
     "cvss>=3.6,<4",
+    "stix2>=3.0.1,<4",
 ]
 
 [tool.black]
