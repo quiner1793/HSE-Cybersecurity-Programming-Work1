@@ -3,6 +3,7 @@ import re
 from typing import Any
 
 from config import BDU_XLSX
+from cvss import CVSS2, CVSS3, CVSS4
 from python_calamine import CalamineWorkbook
 
 BDU_SHEET = "Уязвимости"
@@ -38,6 +39,19 @@ def _join(records: list[dict[str, str]], field: str) -> str:
     return "; ".join(dict.fromkeys(record[field] for record in records if record[field]))
 
 
+def cvss_with_score(value: str, version: str) -> str:
+    """Вернуть балл и вектор БДУ в одном поле, как для NVD и CNA."""
+    if not value:
+        return ""
+    if version == "2.0":
+        vector = value
+        score = CVSS2(vector).scores()[0]
+    else:
+        vector = value if value.startswith("CVSS:") else f"CVSS:{version}/{value}"
+        score = (CVSS4(vector) if version == "4.0" else CVSS3(vector)).scores()[0]
+    return f"{score:.1f} {vector}"
+
+
 def enrich_rows_with_bdu(rows: list[dict[str, str]]) -> int:
     wanted = {_text(row["cve_id"]).upper() for row in rows if row.get("cve_id")}
     workbook = CalamineWorkbook.from_path(str(BDU_XLSX))
@@ -68,7 +82,7 @@ def enrich_rows_with_bdu(rows: list[dict[str, str]]) -> int:
 
         cvss = ""
         cvss_version = ""
-        for key, version in (("cvss_bdu_31", "3.1"), ("cvss_bdu_30", "3.0"), ("cvss_bdu_40", "4.0"), ("cvss_bdu_20", "2.0")):
+        for key, version in (("cvss_bdu_40", "4.0"), ("cvss_bdu_31", "3.1"), ("cvss_bdu_30", "3.0"), ("cvss_bdu_20", "2.0")):
             index = header[key]
             cvss = _text(row[index]) if index is not None else ""
             if cvss:
@@ -78,7 +92,7 @@ def enrich_rows_with_bdu(rows: list[dict[str, str]]) -> int:
         record = {
             "bdu_id": bdu_id,
             "published_bdu": _date_text(row[header["published_bdu"]]),
-            "cvss_bdu": cvss,
+            "cvss_bdu": cvss_with_score(cvss, cvss_version),
             "cvss_bdu_version": cvss_version,
         }
 

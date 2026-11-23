@@ -32,7 +32,7 @@ def write_csv(path: Path, fieldnames: list[str], rows: list[dict]) -> None:
 
 
 def parse_score(value: str, version: str) -> dict:
-    """Берёт балл каталога; для вектора без балла рассчитывает базовый CVSS."""
+    """Использует сохранённый балл; при его отсутствии рассчитывает базовый CVSS."""
     if not value:
         return {}
     if "CVSS:" in value:
@@ -44,8 +44,9 @@ def parse_score(value: str, version: str) -> dict:
         reported = None
     if not vector.startswith(f"CVSS:{version}/"):
         raise ValueError(f"Версия вектора не совпадает с колонкой: {value}")
-    calculated = (CVSS4(vector) if version == "4.0" else CVSS3(vector)).scores()[0]
-    return {"score": reported if reported is not None else calculated, "vector": vector}
+    if reported is None:
+        reported = (CVSS4(vector) if version == "4.0" else CVSS3(vector)).scores()[0]
+    return {"score": reported, "vector": vector}
 
 
 def metrics(vector: str, version: str) -> dict[str, str]:
