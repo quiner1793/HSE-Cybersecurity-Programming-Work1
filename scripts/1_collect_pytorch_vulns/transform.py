@@ -1,6 +1,8 @@
 import datetime as dt
 from typing import Any
 
+from cvss import CVSS4
+
 from config import FIELDS, START_DATE
 
 
@@ -15,8 +17,8 @@ def nvd_details(cve: dict[str, Any]) -> dict[str, Any]:
         for description in weakness.get("description", [])
         if str(description.get("value", "")).startswith("CWE-")
     ]
-    cvss = {f"cvss{version}_{source}": "" for version in ("30", "31", "40") for source in ("nvd", "cna")}
-    for metric_key, version in (("cvssMetricV30", "30"), ("cvssMetricV31", "31"), ("cvssMetricV40", "40")):
+    cvss = {f"cvss{version}_{source}": "" for version in ("31", "40") for source in ("nvd", "cna")}
+    for metric_key, version in (("cvssMetricV31", "31"), ("cvssMetricV40", "40")):
         for metric in cve.get("metrics", {}).get(metric_key, []):
             data = metric.get("cvssData", {})
             value = f"{data.get('baseScore', '')} {data.get('vectorString', '')}".strip()
@@ -90,6 +92,29 @@ def advisory_cvss(item: dict[str, Any], version: str) -> str:
     return _cvss_value(data)
 
 
+def selected_cvss40(
+    detail: dict[str, Any], cna_value: str, ghsa_items: list[dict[str, Any]], osv_items: list[dict[str, Any]]
+) -> str:
+    """Одна оценка CVSS 4.0: CNA, NVD, GHSA, OSV; максимум балла не используется."""
+    for value in (cna_value, detail.get("cvss40_cna", ""), detail.get("cvss40_nvd", "")):
+        if value:
+            if value.startswith("CVSS:4.0/"):
+                value = f"{CVSS4(value).scores()[0]:g} {value}"
+            return value
+    for item in sorted(ghsa_items, key=lambda record: record.get("ghsa_id", "")):
+        value = advisory_cvss(item, "4.0")
+        if value:
+            if value.startswith("CVSS:4.0/"):
+                value = f"{CVSS4(value).scores()[0]:g} {value}"
+            return value
+    for item in sorted(osv_items, key=lambda record: record.get("id", "")):
+        for severity in item.get("severity", []):
+            vector = str(severity.get("score") or "")
+            if severity.get("type") == "CVSS_V4" and vector.startswith("CVSS:4.0/"):
+                return f"{CVSS4(vector).scores()[0]:g} {vector}"
+    return ""
+
+
 def cve_list_assignments(record: dict[str, Any]) -> list[tuple[str, str, str, str]]:
     assignments = []
     containers = record.get("containers", {})
@@ -104,8 +129,8 @@ def cve_list_assignments(record: dict[str, Any]) -> list[tuple[str, str, str, st
                     cwe = description.get("cweId", "")
                     if str(cwe).startswith("CWE-"):
                         assignments.append(("cwe", cwe, role, name))
-            for metric in container.get("metrics", []):
-                for key, field in (("cvssV3_0", "cvss30"), ("cvssV3_1", "cvss31"), ("cvssV4_0", "cvss40")):
+            for metric in container.get("metrics", []) if role == "CNA" else []:
+                for key, field in (("cvssV3_1", "cvss31"), ("cvssV4_0", "cvss40")):
                     value = _cvss_value(metric.get(key, {}))
                     if value:
                         assignments.append((field, value, role, name))
@@ -201,8 +226,9 @@ def build_rows(
             field: next(
                 (value for candidate, value, role, _ in list_assignments if candidate == field and role == "CNA"), ""
             )
-            for field in ("cvss30", "cvss31", "cvss40")
+            for field in ("cvss31", "cvss40")
         }
+        cvss40 = selected_cvss40(detail, cna_cvss["cvss40"], ghsa_items, osv_items)
         adp_names = {
             provider.get("orgId", ""): provider.get("shortName", "ADP")
             for container in cve_records.get(cve_id, {}).get("containers", {}).get("adp", [])
@@ -228,24 +254,9 @@ def build_rows(
                     ]
                     + [f"{value} — {source}" for value, source in cwes if value]
                 ),
-                "cvss30_nvd": detail.get("cvss30_nvd", ""),
-                "cvss30_cna": cna_cvss["cvss30"] or detail.get("cvss30_cna", ""),
-                "cvss30_adp": _unique(
-                    [f"{name}: {value}" for field, value, role, name in list_assignments if field == "cvss30" and role == "ADP"]
-                ),
-                "cvss30_ghsa": _unique([advisory_cvss(item, "3.0") for item in ghsa_items]),
                 "cvss31_nvd": detail.get("cvss31_nvd", ""),
                 "cvss31_cna": cna_cvss["cvss31"] or detail.get("cvss31_cna", ""),
-                "cvss31_adp": _unique(
-                    [f"{name}: {value}" for field, value, role, name in list_assignments if field == "cvss31" and role == "ADP"]
-                ),
-                "cvss31_ghsa": _unique([advisory_cvss(item, "3.1") for item in ghsa_items]),
-                "cvss40_nvd": detail.get("cvss40_nvd", ""),
-                "cvss40_cna": cna_cvss["cvss40"] or detail.get("cvss40_cna", ""),
-                "cvss40_adp": _unique(
-                    [f"{name}: {value}" for field, value, role, name in list_assignments if field == "cvss40" and role == "ADP"]
-                ),
-                "cvss40_ghsa": _unique([advisory_cvss(item, "4.0") for item in ghsa_items]),
+                "cvss40": cvss40,
                 "epss": epss.get(cve_id, {}).get("epss", ""),
                 "epss_percentile": epss.get(cve_id, {}).get("percentile", ""),
                 "epss_date": epss.get(cve_id, {}).get("date", ""),

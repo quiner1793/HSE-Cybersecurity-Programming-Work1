@@ -13,6 +13,7 @@ COLUMNS = {
     "cve_ids": "Идентификаторы других систем описаний уязвимости",
     "cvss_bdu_20": "CVSS 2.0",
     "cvss_bdu_30": "CVSS 3.0",
+    "cvss_bdu_31": "CVSS 3.1",
     "cvss_bdu_40": "CVSS 4.0",
 }
 
@@ -51,8 +52,8 @@ def enrich_rows_with_bdu(rows: list[dict[str, str]]) -> int:
             name = _text(value)
             if name:
                 names.setdefault(name, index)
-        if all(name in names for name in COLUMNS.values()):
-            header = {key: names[name] for key, name in COLUMNS.items()}
+        if all(names.get(COLUMNS[key]) is not None for key in ("bdu_id", "published_bdu", "cve_ids")):
+            header = {key: names.get(name) for key, name in COLUMNS.items()}
             header_row_index = row_index
             break
     if header is None or header_row_index is None:
@@ -67,8 +68,9 @@ def enrich_rows_with_bdu(rows: list[dict[str, str]]) -> int:
 
         cvss = ""
         cvss_version = ""
-        for key, version in (("cvss_bdu_30", "3.0"), ("cvss_bdu_40", "4.0"), ("cvss_bdu_20", "2.0")):
-            cvss = _text(row[header[key]])
+        for key, version in (("cvss_bdu_31", "3.1"), ("cvss_bdu_30", "3.0"), ("cvss_bdu_40", "4.0"), ("cvss_bdu_20", "2.0")):
+            index = header[key]
+            cvss = _text(row[index]) if index is not None else ""
             if cvss:
                 cvss_version = version
                 break
