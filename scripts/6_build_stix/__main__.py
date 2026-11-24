@@ -23,6 +23,12 @@ def main() -> None:
         ),
         external_references=[
             {
+                "source_name": "cwe",
+                "external_id": "CWE-502",
+                "url": "https://cwe.mitre.org/data/definitions/502.html",
+                "description": "Основной класс слабости для аналитической цепочки CWE-502 → CAPEC-586.",
+            },
+            {
                 "source_name": "cve",
                 "external_id": "CVE-2026-24747",
                 "url": "https://www.cve.org/CVERecord?id=CVE-2026-24747",
@@ -48,20 +54,62 @@ def main() -> None:
             }
         ],
     )
-    malicious_file = AttackPattern(
-        id="attack-pattern--eed51254-6a50-4f19-80e9-77dd528971d0",
+    client_exploitation = AttackPattern(
+        id="attack-pattern--878d990c-97de-42b2-8d1d-2a1ae5819e26",
         created=CREATED,
         modified=CREATED,
-        name="ATT&CK T1204.002 User Execution: Malicious File",
+        name="ATT&CK T1203 Exploitation for Client Execution",
         description=(
-            "Применимо к сценарию, в котором атакующий побуждает пользователя открыть и загрузить "
-            "подготовленный checkpoint. Не описывает автоматическую загрузку файла сервисом."
+            "Эксплуатация уязвимости загрузчика checkpoint в клиентском приложении "
+            "для выполнения произвольного кода."
         ),
         external_references=[
             {
                 "source_name": "mitre-attack",
-                "external_id": "T1204.002",
-                "url": "https://attack.mitre.org/techniques/T1204/002/",
+                "external_id": "T1203",
+                "url": "https://attack.mitre.org/techniques/T1203/",
+            }
+        ],
+    )
+    unsafe_artifact = AttackPattern(
+        id="attack-pattern--e9aac8ae-790b-4f8f-ae31-58f31cb49a4a",
+        created=CREATED,
+        modified=CREATED,
+        name="ATLAS AML.T0011.000 User Execution: Unsafe AI Artifacts",
+        description="Основное сопоставление для сценария, в котором пользователь инициирует загрузку вредоносного checkpoint.",
+        external_references=[
+            {
+                "source_name": "mitre-atlas",
+                "external_id": "AML.T0011.000",
+                "url": "https://atlas.mitre.org/techniques/AML.T0011.000",
+            }
+        ],
+    )
+    model_supply_chain = AttackPattern(
+        id="attack-pattern--eb458510-aa65-482f-9436-08e4dd59c549",
+        created=CREATED,
+        modified=CREATED,
+        name="ATLAS AML.T0010.003 Supply Chain Compromise: Model Repository",
+        description="Вариант доставки вредоносной модели через репозиторий в использующую её систему; загрузка может быть ручной или автоматической.",
+        external_references=[
+            {
+                "source_name": "mitre-atlas",
+                "external_id": "AML.T0010.003",
+                "url": "https://atlas.mitre.org/techniques/AML.T0010.003",
+            }
+        ],
+    )
+    public_application = AttackPattern(
+        id="attack-pattern--ff7f9b79-c43e-40c8-a788-bcd22173fa3e",
+        created=CREATED,
+        modified=CREATED,
+        name="ATT&CK T1190 Exploit Public-Facing Application",
+        description="Вариант первоначального доступа через доступный из Интернета сервис, принимающий checkpoint и передающий его уязвимому загрузчику.",
+        external_references=[
+            {
+                "source_name": "mitre-attack",
+                "external_id": "T1190",
+                "url": "https://attack.mitre.org/techniques/T1190/",
             }
         ],
     )
@@ -88,15 +136,42 @@ def main() -> None:
             target_ref=vulnerability.id,
         ),
         Relationship(
-            id="relationship--e8b630c1-c040-4564-b56d-4ad2c91060ef",
+            id="relationship--ecb41644-f507-4da3-86b5-57a927116d5b",
             created=CREATED,
             modified=CREATED,
             relationship_type="related-to",
             description=(
-                "В пользовательском сценарии открытие подготовленного файла может предшествовать "
-                "обработке некорректно сериализованного объекта."
+                "Аналитическое сопоставление: CAPEC-586 описывает обработку подготовленного объекта, "
+                "а T1203 — эксплуатацию уязвимости в клиентском приложении."
             ),
-            source_ref=malicious_file.id,
+            source_ref=client_exploitation.id,
+            target_ref=object_injection.id,
+        ),
+        Relationship(
+            id="relationship--434f679c-0a1b-41af-bd83-243cbfc99cfb",
+            created=CREATED,
+            modified=CREATED,
+            relationship_type="related-to",
+            description="Аналитическое сопоставление пользовательского сценария из бюллетеня; не свидетельство наблюдавшейся атаки.",
+            source_ref=unsafe_artifact.id,
+            target_ref=object_injection.id,
+        ),
+        Relationship(
+            id="relationship--69826e6b-aabd-48f8-9b58-095e644a96f7",
+            created=CREATED,
+            modified=CREATED,
+            relationship_type="related-to",
+            description="Аналитическое сопоставление при условии доставки подготовленного checkpoint через репозиторий моделей; не универсальная характеристика CVE.",
+            source_ref=model_supply_chain.id,
+            target_ref=object_injection.id,
+        ),
+        Relationship(
+            id="relationship--d7d7ba24-588b-4ec2-8eb1-e5911948c812",
+            created=CREATED,
+            modified=CREATED,
+            relationship_type="related-to",
+            description="Аналитическое сопоставление только для первоначального доступа через публичный сервис загрузки моделей; автоматизация сама по себе недостаточна.",
+            source_ref=public_application.id,
             target_ref=object_injection.id,
         ),
         Relationship(
@@ -111,7 +186,10 @@ def main() -> None:
     bundle = Bundle(
         vulnerability,
         object_injection,
-        malicious_file,
+        unsafe_artifact,
+        model_supply_chain,
+        client_exploitation,
+        public_application,
         upgrade,
         *relationships,
         id="bundle--5a6489c1-dc16-4f13-ac73-94d0a3f69570",
